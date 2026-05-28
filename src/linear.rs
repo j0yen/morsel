@@ -41,13 +41,13 @@ pub fn linear<const IN: usize, const OUT: usize>(
     x: &[f32; IN],
     y: &mut [f32; OUT],
 ) {
-    for o in 0..OUT {
+    for (o, y_o) in y.iter_mut().enumerate() {
         let row = &w[o];
         let mut acc = b[o];
         for i in 0..IN {
             acc += row[i] * x[i];
         }
-        y[o] = acc;
+        *y_o = acc;
     }
 }
 
@@ -78,6 +78,7 @@ pub fn linear<const IN: usize, const OUT: usize>(
 /// linear_flat(&w, &b, &x, &mut y, 3, 2);
 /// assert_eq!(y, [6.0_f32, 15.0_f32]);
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn linear_flat(
     w: &[f32],
     b: &[f32],
@@ -90,13 +91,13 @@ pub fn linear_flat(
     debug_assert_eq!(b.len(), out_dim, "b shape");
     debug_assert_eq!(x.len(), in_dim, "x shape");
     debug_assert_eq!(y.len(), out_dim, "y shape");
-    for o in 0..out_dim {
+    for (o, y_o) in y.iter_mut().enumerate() {
         let row_start = o * in_dim;
         let mut acc = b[o];
         for i in 0..in_dim {
             acc += w[row_start + i] * x[i];
         }
-        y[o] = acc;
+        *y_o = acc;
     }
 }
 
@@ -131,12 +132,12 @@ pub fn linear_flat_accumulate(
     debug_assert_eq!(w.len(), in_dim * out_dim, "w shape");
     debug_assert_eq!(x.len(), in_dim, "x shape");
     debug_assert_eq!(y.len(), out_dim, "y shape");
-    for o in 0..out_dim {
+    for (o, y_o) in y.iter_mut().enumerate() {
         let row_start = o * in_dim;
-        let mut acc = y[o];
+        let mut acc = *y_o;
         for i in 0..in_dim {
             acc += w[row_start + i] * x[i];
         }
-        y[o] = acc;
+        *y_o = acc;
     }
 }

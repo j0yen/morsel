@@ -12,6 +12,20 @@
 //! description above.
 
 #![allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::as_conversions,
+    clippy::needless_range_loop,
+    clippy::suboptimal_flops,
+    clippy::excessive_precision,
+    clippy::many_single_char_names,
+    clippy::print_stderr,
+    clippy::explicit_iter_loop,
+    clippy::redundant_clone
+)]
+#![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::doc_markdown,
@@ -110,8 +124,17 @@ fn acceptance_ac9() {
     for relpath in &src_files {
         let mut p = PathBuf::from(manifest_dir);
         p.push(relpath);
-        let contents = fs::read_to_string(&p)
-            .unwrap_or_else(|e| panic!("AC9: failed to read {}: {}", p.display(), e));
+        let contents = match fs::read_to_string(&p) {
+            Ok(s) => s,
+            Err(e) => {
+                all_failures.push((
+                    (*relpath).to_string(),
+                    "<file>".into(),
+                    format!("failed to read: {e}"),
+                ));
+                continue;
+            }
+        };
         // Count pub fns for context.
         let pub_count = contents
             .lines()
@@ -125,7 +148,7 @@ fn acceptance_ac9() {
         total_pub += pub_count;
         let fails = check_pub_items(&contents);
         for (n, r) in fails {
-            all_failures.push((relpath.to_string(), n, r));
+            all_failures.push(((*relpath).to_string(), n, r));
         }
     }
 

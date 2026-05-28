@@ -12,6 +12,20 @@
 //! description above.
 
 #![allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::as_conversions,
+    clippy::needless_range_loop,
+    clippy::suboptimal_flops,
+    clippy::excessive_precision,
+    clippy::many_single_char_names,
+    clippy::print_stderr,
+    clippy::explicit_iter_loop,
+    clippy::redundant_clone
+)]
+#![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::doc_markdown,
@@ -76,6 +90,6 @@ fn acceptance_ac5() {
         }
         let got = argmax(&buf);
         let want = naive_argmax(&buf);
-        assert_eq!(got, want, "AC5 case {case} (len={len}): got {:?} want {:?} buf={:?}", got, want, buf);
+        assert_eq!(got, want, "AC5 case {case} (len={len}): got {got:?} want {want:?} buf={buf:?}");
     }
 }

@@ -22,6 +22,12 @@
 //! - `w_hh`: `[4 * hidden, hidden]`, length `4 * hidden * hidden`.
 //! - `b`:    length `4 * hidden`.
 
+#![allow(
+    clippy::too_many_arguments,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop
+)]
+
 use crate::activation::{sigmoid_scalar, tanh_scalar};
 use crate::linear::{linear_flat, linear_flat_accumulate};
 

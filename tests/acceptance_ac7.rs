@@ -12,6 +12,20 @@
 //! description above.
 
 #![allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::as_conversions,
+    clippy::needless_range_loop,
+    clippy::suboptimal_flops,
+    clippy::excessive_precision,
+    clippy::many_single_char_names,
+    clippy::print_stderr,
+    clippy::explicit_iter_loop,
+    clippy::redundant_clone
+)]
+#![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::doc_markdown,
@@ -105,8 +119,7 @@ fn acceptance_ac7() {
         );
         assert!(
             head_out.iter().all(|v| v.is_finite()),
-            "AC7 iter {i}: head_out contains non-finite: {:?}",
-            head_out
+            "AC7 iter {i}: head_out contains non-finite: {head_out:?}"
         );
         // Sigmoid output must lie in [0, 1].
         for &v in &head_out {
