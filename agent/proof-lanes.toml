@@ -49,6 +49,14 @@ required_commands = [
 ]
 
 [[lane]]
+id = "docs-and-license"
+description = "README, LICENSE-*, and other doc/distribution files added during Stage 6 publish."
+globs = ["README.md", "LICENSE-*", "*.md"]
+required_commands = [
+  "test -s README.md",
+]
+
+[[lane]]
 id = "harness-readonly"
 description = "Harness files; should never change after scaffold"
 globs = [
