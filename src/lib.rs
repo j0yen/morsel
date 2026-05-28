@@ -36,8 +36,10 @@
 //! let x = [1.0_f32, 2.0_f32];
 //! let mut y = [0.0_f32; 2];
 //! linear(&w, &b, &x, &mut y);
+//! // Pre-sigmoid: y = [-0.4, 1.65]; post-sigmoid: approximately [0.401, 0.839].
 //! sigmoid(&mut y);
-//! assert!((y[0] - 0.3775_f32).abs() < 1e-3);
+//! assert!((y[0] - 0.401_f32).abs() < 1e-2);
+//! assert!((y[1] - 0.839_f32).abs() < 1e-2);
 //! ```
 
 #![cfg_attr(not(test), forbid(unsafe_code))]

@@ -104,8 +104,23 @@ pub fn linear_flat(
 /// cell to add the input-to-hidden and hidden-to-hidden contributions into
 /// a single buffer that already contains the bias.
 ///
+/// Formula: `y[o] = y[o] + sum_{i in 0..in_dim} w[o * in_dim + i] * x[i]`.
+///
 /// `w` is row-major flat, length `out_dim * in_dim`. `x` length `in_dim`.
 /// `y` length `out_dim`.
+///
+/// # Example
+///
+/// ```
+/// use morsel::linear::linear_flat_accumulate;
+///
+/// // Identity-shape 2x2: y0 += 1*x0 + 0*x1; y1 += 0*x0 + 1*x1
+/// let w = [1.0_f32, 0.0, 0.0, 1.0];
+/// let x = [3.0_f32, 4.0];
+/// let mut y = [10.0_f32, 20.0];
+/// linear_flat_accumulate(&w, &x, &mut y, 2, 2);
+/// assert_eq!(y, [13.0_f32, 24.0_f32]);
+/// ```
 pub fn linear_flat_accumulate(
     w: &[f32],
     x: &[f32],
