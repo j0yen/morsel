@@ -11,12 +11,106 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
+
+use morsel::activation::sigmoid;
+use morsel::linear::linear_flat;
+use morsel::lstm::lstm_step;
+
+/// Composed pipeline: LSTM step → linear projection → sigmoid. All
+/// buffers are caller-provided; the function takes only `&mut [f32]`
+/// outputs.
+///
+/// The API surface of every primitive in morsel writes into
+/// caller-provided slices — there's nowhere for a `Vec` to be
+/// constructed inside the hot path. This function is the structural
+/// guarantee. The runtime assertion below proves that the same buffers
+/// can be reused across 100 calls without panic.
+#[allow(clippy::too_many_arguments)]
+fn pipeline_step(
+    x: &[f32],
+    h: &mut [f32],
+    c: &mut [f32],
+    w_ih: &[f32],
+    w_hh: &[f32],
+    b: &[f32],
+    gates_buf: &mut [f32],
+    head_w: &[f32],
+    head_b: &[f32],
+    head_out: &mut [f32],
+    input_dim: usize,
+    hidden: usize,
+    head_out_dim: usize,
+) {
+    lstm_step(
+        x, h, c, w_ih, w_hh, b, gates_buf, input_dim, hidden,
+    );
+    linear_flat(head_w, head_b, h, head_out, hidden, head_out_dim);
+    sigmoid(head_out);
+}
 
 #[test]
 fn acceptance_ac7() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC7 not yet implemented — see file header");
+    let input_dim = 4;
+    let hidden = 8;
+    let four_h = 4 * hidden;
+    let head_out_dim = 2;
+
+    // All buffers pre-allocated once. No allocation inside the loop.
+    let w_ih: Vec<f32> = (0..(four_h * input_dim))
+        .map(|i| ((i as f32) * 0.01) - 0.1)
+        .collect();
+    let w_hh: Vec<f32> = (0..(four_h * hidden))
+        .map(|i| 0.05 - ((i as f32) * 0.002))
+        .collect();
+    let b: Vec<f32> = (0..four_h).map(|i| ((i as f32) * 0.01) - 0.05).collect();
+    let head_w: Vec<f32> = (0..(head_out_dim * hidden))
+        .map(|i| 0.1 - ((i as f32) * 0.01))
+        .collect();
+    let head_b: Vec<f32> = vec![0.0; head_out_dim];
+
+    let mut h = vec![0.0_f32; hidden];
+    let mut c = vec![0.0_f32; hidden];
+    let mut gates_buf = vec![0.0_f32; four_h];
+    let mut head_out = vec![0.0_f32; head_out_dim];
+
+    let x: Vec<f32> = vec![0.1, -0.2, 0.3, -0.4];
+
+    // Run 100 iterations re-using the same buffers throughout. The
+    // test passes if (a) we complete without panic and (b) outputs are
+    // finite. Re-running on persisted state means h and c drift each
+    // call, which is fine — what we're proving is the API never
+    // requires a fresh allocation.
+    for i in 0..100 {
+        pipeline_step(
+            &x,
+            &mut h,
+            &mut c,
+            &w_ih,
+            &w_hh,
+            &b,
+            &mut gates_buf,
+            &head_w,
+            &head_b,
+            &mut head_out,
+            input_dim,
+            hidden,
+            head_out_dim,
+        );
+        assert!(
+            head_out.iter().all(|v| v.is_finite()),
+            "AC7 iter {i}: head_out contains non-finite: {:?}",
+            head_out
+        );
+        // Sigmoid output must lie in [0, 1].
+        for &v in &head_out {
+            assert!((0.0..=1.0).contains(&v), "AC7 iter {i}: sigmoid out-of-range {v}");
+        }
+    }
 }

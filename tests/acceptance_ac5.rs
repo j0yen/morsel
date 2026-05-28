@@ -11,12 +11,71 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
+
+use morsel::classify::argmax;
+
+/// Naive linear scan. Identical algorithm to `argmax`, kept as an
+/// independent oracle so the property test still has a baseline.
+fn naive_argmax(logits: &[f32]) -> Option<usize> {
+    let mut best: Option<(usize, f32)> = None;
+    for (i, &v) in logits.iter().enumerate() {
+        match best {
+            None => best = Some((i, v)),
+            Some((_, bv)) if v > bv => best = Some((i, v)),
+            _ => {}
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
+/// Tiny deterministic linear-congruential generator. Good enough to
+/// produce 1000 reproducible f32 inputs without pulling in `rand` (the
+/// project has max_deps=1 reserved for proptest as a dev-dep, and
+/// argmax determinism doesn't need cryptographic randomness).
+struct Lcg(u64);
+impl Lcg {
+    fn next_u32(&mut self) -> u32 {
+        // Numerical Recipes constants — classic LCG.
+        self.0 = self
+            .0
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223);
+        (self.0 >> 16) as u32
+    }
+    fn next_f32(&mut self) -> f32 {
+        let u = self.next_u32();
+        // Map to [-100, 100). Doesn't have to be uniform; just needs spread.
+        let frac = (u as f32) / (u32::MAX as f32);
+        frac * 200.0 - 100.0
+    }
+}
 
 #[test]
 fn acceptance_ac5() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC5 not yet implemented — see file header");
+    // Direct cases.
+    assert_eq!(argmax(&[]), None, "AC5: empty slice → None");
+    assert_eq!(argmax(&[0.1, 0.5, 0.3, 0.5]), Some(1), "AC5: tie picks first");
+    assert_eq!(argmax(&[3.0]), Some(0), "AC5: single element");
+    assert_eq!(argmax(&[-1.0, -2.0, -3.0]), Some(0), "AC5: all negative");
+    assert_eq!(argmax(&[f32::NEG_INFINITY, 0.0]), Some(1), "AC5: -inf");
+
+    // Randomized property test: 1000 cases, varying length, against naive impl.
+    let mut rng = Lcg(0xDEAD_BEEF);
+    for case in 0..1000 {
+        let len = (rng.next_u32() % 64) + 1; // 1..=64 elements
+        let mut buf: Vec<f32> = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            buf.push(rng.next_f32());
+        }
+        let got = argmax(&buf);
+        let want = naive_argmax(&buf);
+        assert_eq!(got, want, "AC5 case {case} (len={len}): got {:?} want {:?} buf={:?}", got, want, buf);
+    }
 }

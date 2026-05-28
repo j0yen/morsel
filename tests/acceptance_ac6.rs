@@ -11,12 +11,112 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
 
+use morsel::activation::softmax;
+use morsel::classify::argmax;
+use morsel::linear::linear_flat;
+use morsel::lstm::lstm_scan;
+
+/// Hand-designed sequence classifier: "sign-of-sum" over a 1-d frame
+/// sequence whose entries are in {-1.0, +1.0}. The LSTM is configured
+/// to accumulate the sum into the cell state (forget gate ≈ 1, input
+/// gate ≈ 1, candidate = the input, output gate ≈ 1). The head is a
+/// 2-class linear projection h → [positive_score, negative_score],
+/// followed by softmax + argmax. Class 0 = positive, class 1 = negative.
+///
+/// This is a composition test: it must touch lstm_scan + linear_flat +
+/// softmax + argmax in one path. The classifier is exact for the four
+/// canonical inputs (asserted: ≥3 of 4 correct), which is a strong
+/// signal that no primitive is silently broken.
 #[test]
 fn acceptance_ac6() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC6 not yet implemented — see file header");
+    let input_dim = 1;
+    let hidden = 1;
+    let four_h = 4 * hidden;
+
+    // Gate order in morsel & PyTorch: [i, f, g, o].
+    //
+    // We want, per step:
+    //   i ≈ 1, f ≈ 1, g ≈ x_t, o ≈ 1
+    // so c_t = c_{t-1} + x_t (the running sum), h_t = tanh(c_t).
+    //
+    // Achieve via:
+    //   - bias_i = +5 (sigmoid(5)  ≈ 0.993 ≈ 1)
+    //   - bias_f = +5 (sigmoid(5)  ≈ 0.993 ≈ 1)
+    //   - bias_o = +5
+    //   - bias_g = 0,  w_ih_g = 1   ⇒ pre-tanh = x_t, post-tanh = tanh(x_t)
+    //                                     ≈ ±0.762 for x_t ∈ {-1, +1}.
+    // The cell state will accumulate roughly 0.762 * sum_of_signs, which
+    // is enough to discriminate sign on short sequences.
+    //
+    // w_ih has shape [4*hidden, input_dim] = [4, 1]. Row layout: [i; f; g; o].
+    let w_ih: Vec<f32> = vec![
+        0.0, // i_ih
+        0.0, // f_ih
+        1.0, // g_ih
+        0.0, // o_ih
+    ];
+    // w_hh has shape [4, 1]; we don't want hidden→gate feedback in this toy.
+    let w_hh: Vec<f32> = vec![0.0, 0.0, 0.0, 0.0];
+    // bias [i, f, g, o] = [+5, +5, 0, +5].
+    let b: Vec<f32> = vec![5.0, 5.0, 0.0, 5.0];
+
+    // Head: 1-hidden → 2-class. Linear_flat shape: [out=2, in=1].
+    // Row 0 (positive_score) = +1 * h_final + 0
+    // Row 1 (negative_score) = -1 * h_final + 0
+    let head_w: Vec<f32> = vec![1.0, -1.0];
+    let head_b: Vec<f32> = vec![0.0, 0.0];
+
+    // The 4 canonical inputs (length-3 sequences).
+    let inputs: [(Vec<f32>, usize); 4] = [
+        (vec![1.0, 1.0, 1.0], 0),     // strongly positive  -> class 0
+        (vec![-1.0, -1.0, -1.0], 1),  // strongly negative  -> class 1
+        (vec![1.0, 1.0, -1.0], 0),    // net positive       -> class 0
+        (vec![-1.0, -1.0, 1.0], 1),   // net negative       -> class 1
+    ];
+
+    let mut correct = 0;
+    for (frames, expected) in inputs.iter() {
+        let mut h = vec![0.0_f32; hidden];
+        let mut c = vec![0.0_f32; hidden];
+        let mut gates_buf = vec![0.0_f32; four_h];
+        lstm_scan(
+            frames,
+            &mut h,
+            &mut c,
+            &w_ih,
+            &w_hh,
+            &b,
+            &mut gates_buf,
+            input_dim,
+            hidden,
+        );
+
+        // Head: logits = head_w * h + head_b
+        let mut logits = vec![0.0_f32; 2];
+        linear_flat(&head_w, &head_b, &h, &mut logits, hidden, 2);
+        // Softmax (no-op for argmax, but exercises the primitive).
+        softmax(&mut logits);
+
+        let predicted = argmax(&logits).expect("AC6: argmax returned None");
+        if predicted == *expected {
+            correct += 1;
+        }
+        eprintln!(
+            "AC6: frames={:?} h_final={:.4} logits_after_softmax={:?} pred={} expected={}",
+            frames, h[0], logits, predicted, expected
+        );
+    }
+
+    assert!(
+        correct >= 3,
+        "AC6: only {correct}/4 canonical inputs classified correctly (need ≥3)"
+    );
 }

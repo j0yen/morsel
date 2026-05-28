@@ -11,12 +11,93 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
 
+use morsel::activation::{sigmoid, softmax};
+use morsel::linear::linear_flat;
+use morsel::lstm::lstm_scan;
+
+/// Run the full composed pipeline (LSTM scan → linear → softmax → also
+/// sigmoid for variety) on a fixed input. We then re-run it from
+/// scratch with freshly-zeroed state buffers and assert the outputs
+/// are bit-identical (using `to_bits()` comparison).
 #[test]
 fn acceptance_ac8() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC8 not yet implemented — see file header");
+    let input_dim = 2;
+    let hidden = 4;
+    let four_h = 4 * hidden;
+    let head_out_dim = 3;
+    let n_frames = 6;
+
+    let w_ih: Vec<f32> = (0..(four_h * input_dim))
+        .map(|i| ((i as f32) * 0.05) - 0.2)
+        .collect();
+    let w_hh: Vec<f32> = (0..(four_h * hidden))
+        .map(|i| 0.1 - ((i as f32) * 0.02))
+        .collect();
+    let b: Vec<f32> = (0..four_h).map(|i| ((i as f32) * 0.015) - 0.07).collect();
+    let head_w: Vec<f32> = (0..(head_out_dim * hidden))
+        .map(|i| 0.2 - ((i as f32) * 0.03))
+        .collect();
+    let head_b: Vec<f32> = vec![0.01, -0.02, 0.03];
+
+    let frames: Vec<f32> = (0..(n_frames * input_dim))
+        .map(|i| 0.07 * (i as f32) - 0.2)
+        .collect();
+
+    let run = || -> (Vec<f32>, Vec<f32>) {
+        let mut h = vec![0.0_f32; hidden];
+        let mut c = vec![0.0_f32; hidden];
+        let mut gates_buf = vec![0.0_f32; four_h];
+        let mut head_out = vec![0.0_f32; head_out_dim];
+        lstm_scan(
+            &frames,
+            &mut h,
+            &mut c,
+            &w_ih,
+            &w_hh,
+            &b,
+            &mut gates_buf,
+            input_dim,
+            hidden,
+        );
+        let head_sigmoid_out = head_out.clone();
+        linear_flat(&head_w, &head_b, &h, &mut head_out, hidden, head_out_dim);
+        let mut tmp = head_sigmoid_out;
+        sigmoid(&mut tmp); // exercise sigmoid, discard
+        let mut softmaxed = head_out.clone();
+        softmax(&mut softmaxed);
+        (head_out, softmaxed)
+    };
+
+    let (a_logits, a_soft) = run();
+    let (b_logits, b_soft) = run();
+
+    assert_eq!(
+        a_logits.len(),
+        b_logits.len(),
+        "AC8 length mismatch"
+    );
+    for i in 0..a_logits.len() {
+        assert_eq!(
+            a_logits[i].to_bits(),
+            b_logits[i].to_bits(),
+            "AC8 logits[{i}] differ: {} vs {}",
+            a_logits[i],
+            b_logits[i]
+        );
+        assert_eq!(
+            a_soft[i].to_bits(),
+            b_soft[i].to_bits(),
+            "AC8 softmax[{i}] differ: {} vs {}",
+            a_soft[i],
+            b_soft[i]
+        );
+    }
 }

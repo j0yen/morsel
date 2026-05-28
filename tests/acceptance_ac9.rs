@@ -11,12 +11,132 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::indexing_slicing
+)]
+
+use std::fs;
+use std::path::PathBuf;
+
+/// Scan a source file. For every `pub fn NAME` (top-level), confirm
+/// that the lines immediately above contain a `///` doc block, and
+/// that the doc block either:
+///   - contains a fenced runnable example (a ```` ``` ```` line), or
+///   - contains a math formula marker (`y = `, `gates =`, etc.), or
+///   - references a known formula via `# Numeric stability` / `# Shape`
+///     header (the LSTM/activation primitives that don't need an
+///     example but document the math).
+///
+/// Returns Vec of (function_name, reason_if_missing) for items that fail.
+fn check_pub_items(source: &str) -> Vec<(String, String)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut failures: Vec<(String, String)> = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        // Identify top-level public function declarations.
+        let is_pub_fn = trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("pub fn\t");
+        if !is_pub_fn {
+            continue;
+        }
+        // Skip if inside a function body (indent > 0). At top-level, the
+        // line should start at column 0.
+        if line.starts_with(' ') || line.starts_with('\t') {
+            continue;
+        }
+        // Extract the function name.
+        let after_pub_fn = &trimmed["pub fn ".len()..];
+        let name_end = after_pub_fn.find(|c: char| !c.is_alphanumeric() && c != '_').unwrap_or(after_pub_fn.len());
+        let name = &after_pub_fn[..name_end];
+
+        // Walk upward collecting consecutive doc lines (skip blank lines and attributes between).
+        let mut doc_block: Vec<&str> = Vec::new();
+        let mut i = idx;
+        while i > 0 {
+            i -= 1;
+            let prev = lines[i].trim_start();
+            if prev.starts_with("///") || prev.starts_with("//!") {
+                doc_block.push(prev);
+            } else if prev.is_empty()
+                || prev.starts_with("#[")
+                || prev.starts_with("#![")
+            {
+                // Skip blank lines / attributes; doc may be further up.
+                continue;
+            } else {
+                break;
+            }
+        }
+        let doc_text = doc_block.join("\n");
+        let has_example_fence = doc_text.contains("```");
+        let has_formula = doc_text.contains(" = ")
+            || doc_text.contains("y =")
+            || doc_text.contains("gates =")
+            || doc_text.contains("argmax")
+            || doc_text.contains("sigmoid")
+            || doc_text.contains("tanh")
+            || doc_text.contains("softmax");
+
+        if doc_block.is_empty() {
+            failures.push((name.to_string(), "no doc comment".into()));
+        } else if !has_example_fence && !has_formula {
+            failures.push((
+                name.to_string(),
+                "doc lacks example block AND math formula".into(),
+            ));
+        }
+    }
+    failures
+}
 
 #[test]
 fn acceptance_ac9() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC9 not yet implemented — see file header");
+    // CARGO_MANIFEST_DIR is set by cargo at compile-time for tests.
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let src_files = [
+        "src/lib.rs",
+        "src/linear.rs",
+        "src/activation.rs",
+        "src/lstm.rs",
+        "src/classify.rs",
+    ];
+
+    let mut total_pub = 0usize;
+    let mut all_failures: Vec<(String, String, String)> = Vec::new();
+
+    for relpath in &src_files {
+        let mut p = PathBuf::from(manifest_dir);
+        p.push(relpath);
+        let contents = fs::read_to_string(&p)
+            .unwrap_or_else(|e| panic!("AC9: failed to read {}: {}", p.display(), e));
+        // Count pub fns for context.
+        let pub_count = contents
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                (t.starts_with("pub fn ") || t.starts_with("pub fn\t"))
+                    && !l.starts_with(' ')
+                    && !l.starts_with('\t')
+            })
+            .count();
+        total_pub += pub_count;
+        let fails = check_pub_items(&contents);
+        for (n, r) in fails {
+            all_failures.push((relpath.to_string(), n, r));
+        }
+    }
+
+    assert!(
+        total_pub > 0,
+        "AC9: scan found 0 public items — looks like the test is broken, not the docs"
+    );
+    assert!(
+        all_failures.is_empty(),
+        "AC9: {} undocumented or under-documented public items: {:?}",
+        all_failures.len(),
+        all_failures
+    );
 }

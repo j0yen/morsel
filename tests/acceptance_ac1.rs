@@ -11,12 +11,51 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
+
+use morsel::linear::linear;
 
 #[test]
 fn acceptance_ac1() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC1 not yet implemented — see file header");
+    // 3-input, 2-output dense layer with hand-set weights.
+    // y0 = 0.5*x0 + 1.0*x1 + (-0.5)*x2 + 0.1
+    // y1 = 2.0*x0 + (-1.0)*x1 + 0.25*x2 + (-0.2)
+    let w: [[f32; 3]; 2] = [[0.5, 1.0, -0.5], [2.0, -1.0, 0.25]];
+    let b: [f32; 2] = [0.1, -0.2];
+    let x: [f32; 3] = [1.0, 2.0, 4.0];
+    let mut y: [f32; 2] = [0.0; 2];
+
+    linear(&w, &b, &x, &mut y);
+
+    // Hand-computed references:
+    // y0 = 0.5*1 + 1.0*2 + (-0.5)*4 + 0.1 = 0.5 + 2.0 - 2.0 + 0.1 = 0.6
+    // y1 = 2.0*1 + (-1.0)*2 + 0.25*4 + (-0.2) = 2.0 - 2.0 + 1.0 - 0.2 = 0.8
+    let expected = [0.6_f32, 0.8_f32];
+    let tol = 1e-6_f32;
+
+    for i in 0..2 {
+        let diff = (y[i] - expected[i]).abs();
+        assert!(
+            diff < tol,
+            "AC1: y[{i}] = {} expected {} diff {} > tol {}",
+            y[i],
+            expected[i],
+            diff,
+            tol
+        );
+    }
+
+    // Edge case: identity-ish 1x1 layer.
+    let w1: [[f32; 1]; 1] = [[3.0]];
+    let b1: [f32; 1] = [-1.0];
+    let x1: [f32; 1] = [2.0];
+    let mut y1: [f32; 1] = [0.0];
+    linear(&w1, &b1, &x1, &mut y1);
+    assert!((y1[0] - 5.0).abs() < tol, "AC1 1x1: got {}", y1[0]);
 }

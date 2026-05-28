@@ -11,12 +11,69 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing,
+    clippy::float_cmp
+)]
+
+use morsel::activation::{relu, sigmoid, softmax, tanh};
+
+fn approx(a: f32, b: f32, tol: f32, label: &str) {
+    let d = (a - b).abs();
+    assert!(d < tol, "{label}: got {a} expected {b} diff {d} > tol {tol}");
+}
 
 #[test]
 fn acceptance_ac2() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC2 not yet implemented — see file header");
+    let tol = 1e-6_f32;
+
+    // sigmoid
+    let mut s = [0.0_f32, 1.0, -1.0, 10.0, -10.0];
+    sigmoid(&mut s);
+    approx(s[0], 0.5, tol, "sigmoid(0)");
+    approx(s[1], 0.731_058_6, 1e-5, "sigmoid(1)");
+    approx(s[2], 0.268_941_42, 1e-5, "sigmoid(-1)");
+    approx(s[3], 0.999_954_6, 1e-5, "sigmoid(10)");
+    approx(s[4], 4.539_787e-5, 1e-5, "sigmoid(-10)");
+
+    // tanh
+    let mut t = [0.0_f32, 1.0, -1.0, 5.0];
+    tanh(&mut t);
+    approx(t[0], 0.0, tol, "tanh(0)");
+    approx(t[1], 0.761_594_16, 1e-5, "tanh(1)");
+    approx(t[2], -0.761_594_16, 1e-5, "tanh(-1)");
+    approx(t[3], 0.999_909, 1e-5, "tanh(5)");
+
+    // relu
+    let mut r = [-2.0_f32, -1e-9, 0.0, 1e-9, 2.0];
+    relu(&mut r);
+    assert_eq!(r[0], 0.0, "relu(-2)");
+    assert_eq!(r[1], 0.0, "relu(-1e-9)");
+    assert_eq!(r[2], 0.0, "relu(0)");
+    approx(r[3], 1e-9, 1e-9, "relu(1e-9)");
+    approx(r[4], 2.0, tol, "relu(2)");
+
+    // softmax — partition-of-unity + numerical stability against a large input.
+    let mut sm = [1.0_f32, 2.0, 3.0];
+    softmax(&mut sm);
+    let sum: f32 = sm.iter().sum();
+    approx(sum, 1.0, tol, "softmax sum");
+    let z = (1.0_f32).exp() + (2.0_f32).exp() + (3.0_f32).exp();
+    approx(sm[0], (1.0_f32).exp() / z, 1e-6, "softmax[0]");
+    approx(sm[1], (2.0_f32).exp() / z, 1e-6, "softmax[1]");
+    approx(sm[2], (3.0_f32).exp() / z, 1e-6, "softmax[2]");
+
+    // Stability: huge positive input should not overflow to NaN/inf.
+    let mut sm2 = [1000.0_f32, 1000.0, 1001.0];
+    softmax(&mut sm2);
+    let sum2: f32 = sm2.iter().sum();
+    approx(sum2, 1.0, 1e-6, "softmax stable sum");
+    assert!(
+        sm2.iter().all(|v| v.is_finite()),
+        "softmax produced non-finite values"
+    );
 }

@@ -11,12 +11,98 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
+
+use morsel::lstm::{lstm_scan, lstm_step};
 
 #[test]
 fn acceptance_ac4() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC4 not yet implemented — see file header");
+    // Setup: 2-input, 3-hidden LSTM, 5 timesteps. Compute the scan via
+    // the morsel `lstm_scan` and verify it matches stepping `lstm_step`
+    // manually frame-by-frame.
+    let input_dim = 2;
+    let hidden = 3;
+    let four_h = 4 * hidden;
+    let n_frames = 5;
+
+    // Same weight construction style as AC3.
+    let w_ih: Vec<f32> = (0..(four_h * input_dim))
+        .map(|i| ((i as f32) * 0.1) - 0.5)
+        .collect();
+    let w_hh: Vec<f32> = (0..(four_h * hidden))
+        .map(|i| 0.2 - ((i as f32) * 0.05))
+        .collect();
+    let b: Vec<f32> = (0..four_h).map(|i| ((i as f32) * 0.03) - 0.15).collect();
+
+    // Five 2-d frames varying mildly across time.
+    let frames: Vec<f32> = (0..(n_frames * input_dim))
+        .map(|i| 0.1 * (i as f32) - 0.25)
+        .collect();
+
+    // Reference: step the cell ourselves.
+    let mut ref_h = vec![0.0_f32; hidden];
+    let mut ref_c = vec![0.0_f32; hidden];
+    let mut ref_gates = vec![0.0_f32; four_h];
+    for t in 0..n_frames {
+        let start = t * input_dim;
+        let end = start + input_dim;
+        let frame = &frames[start..end];
+        lstm_step(
+            frame,
+            &mut ref_h,
+            &mut ref_c,
+            &w_ih,
+            &w_hh,
+            &b,
+            &mut ref_gates,
+            input_dim,
+            hidden,
+        );
+    }
+
+    // Morsel scan.
+    let mut h = vec![0.0_f32; hidden];
+    let mut c = vec![0.0_f32; hidden];
+    let mut gates_buf = vec![0.0_f32; four_h];
+    lstm_scan(
+        &frames,
+        &mut h,
+        &mut c,
+        &w_ih,
+        &w_hh,
+        &b,
+        &mut gates_buf,
+        input_dim,
+        hidden,
+    );
+
+    let tol = 1e-5_f32;
+    for k in 0..hidden {
+        let dh = (h[k] - ref_h[k]).abs();
+        let dc = (c[k] - ref_c[k]).abs();
+        assert!(
+            dh < tol,
+            "AC4 h[{k}]: scan={} step-ref={} diff={} > tol {tol}",
+            h[k],
+            ref_h[k],
+            dh
+        );
+        assert!(
+            dc < tol,
+            "AC4 c[{k}]: scan={} step-ref={} diff={} > tol {tol}",
+            c[k],
+            ref_c[k],
+            dc
+        );
+    }
+
+    // Sanity: scan output is not identically zero (we set non-trivial weights).
+    let any_nonzero = h.iter().any(|v| v.abs() > 1e-6);
+    assert!(any_nonzero, "AC4: scan produced all-zero hidden state");
 }

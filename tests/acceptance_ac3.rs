@@ -11,12 +11,118 @@
 //! the panic stub with a real assertion that verifies the AC
 //! description above.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::float_arithmetic,
+    clippy::indexing_slicing
+)]
+
+use morsel::lstm::lstm_step;
+
+/// Reference implementation of one LSTMCell step using the PyTorch formula,
+/// computed independently from the morsel API. Used to validate the morsel
+/// lstm_step output.
+fn reference_lstm_step(
+    x: &[f32],
+    h: &[f32],
+    c: &[f32],
+    w_ih: &[f32],
+    w_hh: &[f32],
+    b: &[f32],
+    input_dim: usize,
+    hidden: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let four_h = 4 * hidden;
+    let mut gates = vec![0.0_f32; four_h];
+    // gates = W_ih * x + b
+    for o in 0..four_h {
+        let mut acc = b[o];
+        for i in 0..input_dim {
+            acc += w_ih[o * input_dim + i] * x[i];
+        }
+        gates[o] = acc;
+    }
+    // gates += W_hh * h
+    for o in 0..four_h {
+        for i in 0..hidden {
+            gates[o] += w_hh[o * hidden + i] * h[i];
+        }
+    }
+    let sig = |v: f32| 1.0_f32 / (1.0 + (-v).exp());
+    let mut new_h = vec![0.0_f32; hidden];
+    let mut new_c = vec![0.0_f32; hidden];
+    for k in 0..hidden {
+        let i_gate = sig(gates[k]);
+        let f_gate = sig(gates[hidden + k]);
+        let g_gate = gates[2 * hidden + k].tanh();
+        let o_gate = sig(gates[3 * hidden + k]);
+        new_c[k] = f_gate * c[k] + i_gate * g_gate;
+        new_h[k] = o_gate * new_c[k].tanh();
+    }
+    (new_h, new_c)
+}
 
 #[test]
 fn acceptance_ac3() {
-    // edit-agent: replace this stub with a real assertion. The
-    // panic keeps the test failing until you do, so the loop
-    // sees a real Stage 3 signal.
-    panic!("AC AC3 not yet implemented — see file header");
+    // Small but non-trivial LSTM: 2-input, 3-hidden, random-ish weights.
+    let input_dim = 2;
+    let hidden = 3;
+    let four_h = 4 * hidden; // 12
+
+    // Deterministic non-trivial weights. Not random — chosen so gates
+    // span both signs of pre-activation, exercising sigmoid and tanh.
+    let w_ih: Vec<f32> = (0..(four_h * input_dim))
+        .map(|i| ((i as f32) * 0.1) - 0.5)
+        .collect();
+    let w_hh: Vec<f32> = (0..(four_h * hidden))
+        .map(|i| 0.2 - ((i as f32) * 0.05))
+        .collect();
+    let b: Vec<f32> = (0..four_h).map(|i| ((i as f32) * 0.03) - 0.15).collect();
+
+    let x: Vec<f32> = vec![0.7, -0.4];
+    let h0: Vec<f32> = vec![0.1, -0.2, 0.05];
+    let c0: Vec<f32> = vec![0.0, 0.3, -0.1];
+
+    // Compute reference.
+    let (ref_h, ref_c) = reference_lstm_step(
+        &x, &h0, &c0, &w_ih, &w_hh, &b, input_dim, hidden,
+    );
+
+    // Compute via morsel.
+    let mut h = h0.clone();
+    let mut c = c0.clone();
+    let mut gates_buf = vec![0.0_f32; four_h];
+    lstm_step(
+        &x,
+        &mut h,
+        &mut c,
+        &w_ih,
+        &w_hh,
+        &b,
+        &mut gates_buf,
+        input_dim,
+        hidden,
+    );
+
+    let tol = 1e-5_f32;
+    for k in 0..hidden {
+        let dh = (h[k] - ref_h[k]).abs();
+        let dc = (c[k] - ref_c[k]).abs();
+        assert!(
+            dh < tol,
+            "AC3 h[{k}]: morsel={} ref={} diff={} > tol {tol}",
+            h[k],
+            ref_h[k],
+            dh
+        );
+        assert!(
+            dc < tol,
+            "AC3 c[{k}]: morsel={} ref={} diff={} > tol {tol}",
+            c[k],
+            ref_c[k],
+            dc
+        );
+    }
 }
