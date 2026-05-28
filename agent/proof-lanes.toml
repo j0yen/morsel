@@ -41,6 +41,14 @@ required_commands = [
 ]
 
 [[lane]]
+id = "agent-metadata"
+description = "Intent-card amendments and other agent/ metadata. AC10 was added via this lane on 2026-05-27."
+globs = ["agent/**"]
+required_commands = [
+  "autobuilder intake --validate agent/intent-card.json",
+]
+
+[[lane]]
 id = "harness-readonly"
 description = "Harness files; should never change after scaffold"
 globs = [

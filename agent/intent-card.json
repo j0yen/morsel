@@ -64,6 +64,12 @@
       "level": "SHOULD",
       "description": "Documented module rustdoc: every public item in the primitives module carries a doc comment with at least one runnable example or a math formula.",
       "test": "tests/acceptance_ac9.rs"
+    },
+    {
+      "id": "AC10",
+      "level": "SHOULD",
+      "description": "Domain-level invariants hold under randomized inputs: sigmoid stays in [0,1] and is monotonic, tanh stays in [-1,1], relu clamps at zero, softmax is a probability distribution, argmax is order-preserving under softmax, and argmax always returns a valid index for nonempty input. Verified via tests/acceptance_ac10.rs which delegates to proptest_invariants for property-based testing (7+ distinct properties, default 256 cases each).",
+      "test": "tests/acceptance_ac10.rs"
     }
   ],
   "scope": [
