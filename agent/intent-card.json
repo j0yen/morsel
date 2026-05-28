@@ -1,0 +1,153 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-morsel.md",
+  "intent_slug": "morsel",
+  "root_motivation": "Provide a Rust crate of small neural-network layer primitives (Linear, Sigmoid, Tanh, ReLU, Softmax, LSTM, plus argmax) suitable for inference with const-array weights baked into source. The library is the foundation downstream tools (cradle, episode redirect detector, self-review classifier) will consume; without it those depend on candle/onnx and drag in 200MB+ model files. v0.1 ships layer primitives only — the bake CLI, audio frontends, and worked cat-RNN example are explicit follow-ons.",
+  "user_persona": "A Rust author shipping a single binary who has a trained tiny model (<5MB of weights) and wants to call it as a pure function with no IO, no allocator, no runtime, and no extra binary asset. Concretely: me, writing wintermute tooling that wants a 50-neuron model embedded in an 8MB CLI.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "scripts/run-metrics.sh",
+    "target": null
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "Linear (dense) layer: given a weight matrix W ([out, in]) and bias b ([out]), compute y = W * x + b for an input slice x ([in]). Output matches a hand-computed numeric reference within 1e-6.",
+      "test": "tests/acceptance_ac1.rs"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "Activation functions: sigmoid, tanh, relu, softmax. Each applied element-wise to a slice (softmax across the slice). Outputs match a numeric reference within 1e-6 for sigmoid/tanh/relu and 1e-6 for softmax.",
+      "test": "tests/acceptance_ac2.rs"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "Single-layer LSTM cell stepping: given weights (W_ih, W_hh, b) plus initial (h, c), step one timestep with input x and return the new (h, c). The step matches the canonical PyTorch LSTMCell formula (i,f,g,o gates split from a single Wx+Wh+b sum) within 1e-5.",
+      "test": "tests/acceptance_ac3.rs"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "LSTM scan: given a sequence of input frames and the LSTM weights, produce the final hidden state by stepping the cell across the frames in order. Output matches an iterative reference within 1e-5.",
+      "test": "tests/acceptance_ac4.rs"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "Argmax: given a slice of f32 logits, return the index of the maximum (first index on ties). Output matches naive iteration on a randomized property test (1000 cases).",
+      "test": "tests/acceptance_ac5.rs"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "End-to-end worked example (XOR-LSTM in tests): hand-set weights in a test file produce a tiny LSTM that classifies a 4-symbol sequence pattern; the test runs Lstm + Linear + Softmax + Argmax through the library and asserts the predicted class is correct for at least 3 of 4 canonical inputs. This exercises composition of all primitives, not a single primitive in isolation.",
+      "test": "tests/acceptance_ac6.rs"
+    },
+    {
+      "id": "AC7",
+      "level": "MUST",
+      "description": "Allocation-free inference: a benchmark/integration test calls a representative composed pipeline (Lstm step + Linear + Sigmoid) using only caller-provided output buffers; no Vec / Box / heap allocation occurs inside the primitives' hot path. Verified by structuring the primitive APIs to write into `&mut [f32]` outputs rather than returning Vec; the test is a compile-time guarantee plus a runtime assertion that the same output buffer is reused across 100 calls without panic.",
+      "test": "tests/acceptance_ac7.rs"
+    },
+    {
+      "id": "AC8",
+      "level": "SHOULD",
+      "description": "Determinism: running the same composed pipeline on the same inputs twice produces bit-identical f32 outputs.",
+      "test": "tests/acceptance_ac8.rs"
+    },
+    {
+      "id": "AC9",
+      "level": "SHOULD",
+      "description": "Documented module rustdoc: every public item in the primitives module carries a doc comment with at least one runnable example or a math formula.",
+      "test": "tests/acceptance_ac9.rs"
+    }
+  ],
+  "scope": [
+    "Linear / dense layer (y = W*x + b)",
+    "Element-wise activations: sigmoid, tanh, relu, softmax",
+    "LSTM cell step and LSTM scan over a sequence",
+    "Argmax (small classification head)",
+    "Caller-provided output buffers (zero-alloc API surface)",
+    "f32-only numeric path (per PRD §6 non-goals: no GPU, no quantization research)",
+    "Pure Rust, scalar math, no SIMD intrinsics in v0.1"
+  ],
+  "non_goals": [
+    "Model training (PRD §6.1): inference only",
+    "GPU backends (PRD §6.3)",
+    "Dynamic model loading at runtime (PRD §6.4)",
+    "Quantization (int8, q8, GPTQ, AWQ) — deferred per PRD §6.5",
+    "The bake CLI (`morsel bake`) that converts safetensors to weights.rs — deferred to a follow-on PRD per PRD §7 phasing (this is phase 0, that's phase 1)",
+    "Audio preprocessing (LogMel, Mfcc) — deferred per PRD §7 phase 3",
+    "The cat_meow worked example end-to-end with real ESC-50 weights — deferred per PRD §7 phase 2",
+    "Conv1d, Embedding, Gru — deferred per PRD §7 phase 3",
+    "SIMD acceleration — deferred per PRD §7 phase 4",
+    "Models larger than 5MB of weights",
+    "no_std support — not promised in v0.1 (PRD §9.3 says 'day one if cheap', but core libm is not in std::f32::exp by default; defer to follow-on)"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2024",
+    "target_kind": "lib",
+    "deny_unsafe": true,
+    "max_deps": 1,
+    "msrv": "1.85",
+    "additional": {
+      "no_panics_in_happy_path": "true",
+      "f32_tolerance": "1e-5",
+      "rationale": "max_deps=1 because primitives are pure scalar f32 math; the only allowed dependency is proptest (dev-dependency, not counted). Runtime deps target zero."
+    }
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why do you want a Rust crate of tiny neural-network primitives?",
+      "a": "Because every wintermute tool that wants a small ML decision today either pulls in candle (huge), uses regex (brittle), or asks an LLM (slow and expensive). The middle is empty."
+    },
+    {
+      "why": 2,
+      "q": "Why does the middle being empty actually matter to you right now?",
+      "a": "Because cradle (a downstream ML pipeline) blocks on morsel — I cannot build cradle until there is a place to host inference primitives that don't drag candle into every binary."
+    },
+    {
+      "why": 3,
+      "q": "Why is candle-as-dep unacceptable for cradle and friends?",
+      "a": "Candle plus a 200MB model file forces the binary to ship as a tarball with assets. The wintermute ecosystem is built around single statically-linked binaries dropped into ~/.local/bin/. A 200MB asset breaks the install story."
+    },
+    {
+      "why": 4,
+      "q": "Why does the install story matter so much that we're building a parallel ML primitives lib?",
+      "a": "Because the wintermute tools that need ML decisions are all <50-neuron, <1MB-weight problems. Using candle for them is using a sledgehammer to crack a walnut — the cost of the dep dominates the cost of the decision."
+    },
+    {
+      "why": 5,
+      "q": "Why ship inference primitives now, before the bake CLI or any real worked example?",
+      "a": "Because the primitives are the contract everything else depends on. The bake CLI emits weights that target a specific primitive's API; the cat example composes those primitives; cradle imports them. Get the primitives right and stable first, then the rest can be built against a frozen API. This is PRD §7 Phase 0 literally."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "The PRD describes a Cargo workspace with crates/morsel, crates/morsel-bake, crates/morsel-macros, plus examples/cat_meow. Autobuilder scaffolds a single crate. Which slice do we build first?",
+      "resolution": "Scope v0.1 to PRD §7 Phase 0: the core `morsel` library crate (layer primitives). morsel-bake and the cat example are explicit non-goals for this iteration and will be follow-on PRDs."
+    },
+    {
+      "question": "PRD §9.3 asks 'no_std from day one or eventually?'. Day one if cheap. Is it cheap?",
+      "resolution": "Defer to follow-on: f32::exp lives in libm-via-core but only with the libm crate as a dep. Adding a dep contradicts the max_deps=1 (proptest) constraint and adds a config dimension. Document as non-goal and revisit when a no_std consumer materializes."
+    },
+    {
+      "question": "PRD §4.5 promises 'allocation-free inference'. The autobuilder scaffold denies clippy::unwrap_used and forbids unsafe. Are caller-provided output buffers the right way to express this in safe Rust without unwraps?",
+      "resolution": "Yes: every layer function takes a `&mut [f32]` output slice the caller owns. Shape mismatches are caught via debug_assert!. The hot path uses indexed slice arithmetic (clippy::indexing_slicing is `warn`, not `deny`, in the scaffold), no Vec, no Box, no Result-returning per-element ops."
+    },
+    {
+      "question": "AC7's 'allocation-free' is hard to prove via a Rust test. How do we make it falsifiable?",
+      "resolution": "Two-pronged: (a) the API itself takes `&mut [f32]` outputs — there's nowhere to allocate inside the call; (b) a runtime test loops a composed pipeline 100 times against pre-allocated buffers and asserts it completes without panic. This is a structural guarantee plus a runtime smoke test; full allocation tracking would need a custom allocator (out of scope)."
+    },
+    {
+      "question": "AC6 references an 'XOR-LSTM' worked example. The PRD's worked example is a cat audio classifier with real weights, which v0.1 cannot ship.",
+      "resolution": "Replace with a synthetic XOR-LSTM in the test suite: hand-set weights that classify a 4-symbol pattern. This exercises composition of every primitive (Lstm + Linear + Softmax + Argmax) without needing real training data, and is what PRD §7 Phase 0 explicitly proposes ('Hand-written weights.rs for a toy XOR-LSTM')."
+    }
+  ],
+  "created_at": "2026-05-27T00:00:00Z"
+}
